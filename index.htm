@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>LIÊN QUÂN PHANTOM - 120 HEROES</title>
+    <style>
+        :root { --gold: #f1c40f; --blue: #00d4ff; --red: #ff4757; --green: #2ecc71; }
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; touch-action: none; user-select: none; color: white; }
+        canvas { display: block; }
+
+        /* SẢNH CHỜ GACHA */
+        #lobby { 
+            position: fixed; inset: 0; z-index: 100;
+            background: radial-gradient(circle at bottom right, #1a2a6c 0%, #000 100%);
+            display: flex; flex-direction: column; justify-content: center; padding-left: 60px;
+        }
+
+        #gacha-area {
+            position: absolute; bottom: 60px; right: 60px;
+            text-align: right; display: flex; flex-direction: column; align-items: flex-end;
+        }
+
+        #hero-card {
+            background: rgba(0,0,0,0.8); border-right: 6px solid var(--gold);
+            padding: 25px 45px; margin-bottom: 25px; border-radius: 15px 0 0 15px;
+            min-width: 300px; box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+        }
+
+        .hero-name { font-size: 50px; font-weight: 900; color: var(--gold); text-transform: uppercase; margin: 0; letter-spacing: -1px; }
+        .hero-class { color: var(--blue); font-size: 20px; margin-top: 5px; font-weight: bold; }
+
+        .btn {
+            padding: 20px 70px; font-size: 26px; font-weight: bold; border: none; 
+            border-radius: 8px; cursor: pointer; transition: 0.3s; text-transform: uppercase;
+        }
+        .btn-roll { background: var(--red); color: white; box-shadow: 0 0 20px rgba(255, 71, 87, 0.4); }
+        .btn-start { background: var(--gold); color: black; display: none; box-shadow: 0 0 25px rgba(241, 196, 15, 0.5); }
+        .btn:hover { transform: scale(1.05); opacity: 0.9; }
+
+        /* HIỆU ỨNG QUAY */
+        .rolling { animation: blurShake 0.1s infinite; }
+        @keyframes blurShake { 0% { filter: blur(2px); transform: translate(2px,0); } 50% { filter: blur(0); transform: translate(-2px,0); } }
+
+        /* GIAO DIỆN TRONG TRẬN */
+        #hud { position: absolute; inset: 0; pointer-events: none; display: none; }
+        .skill-zone { position: absolute; bottom: 30px; right: 30px; display: flex; gap: 12px; pointer-events: auto; }
+        .s-btn { 
+            width: 75px; height: 75px; background: rgba(0,0,0,0.85); border: 2px solid #fff; 
+            border-radius: 50%; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: #fff; position: relative; overflow: hidden;
+        }
+        .cd-mask { position: absolute; bottom: 0; width: 100%; background: rgba(0,0,0,0.8); height: 0%; }
+        #exit-match { position: absolute; top: 20px; right: 20px; pointer-events: auto; padding: 12px 25px; background: rgba(255,0,0,0.6); color: white; border: none; border-radius: 50px; cursor: pointer; font-weight: bold; }
+        #minimap { position: absolute; top: 20px; left: 20px; border: 2px solid #444; background: rgba(0,0,0,0.8); }
+    </style>
+</head>
+<body>
+
+<div id="lobby">
+    <h1 style="font-size: 70px; margin: 0; line-height: 0.9;">PHANTOM<br><span style="color: var(--gold);">ARENA</span></h1>
+    <p style="opacity: 0.6; max-width: 450px; font-size: 18px; margin-top: 20px;">Hệ thống mô phỏng 120 tướng Liên Quân Mobile. Hãy quay tướng để nhận vai trò ngẫu nhiên và xuất trận!</p>
+
+    <div id="gacha-area">
+        <div id="hero-card">
+            <p id="display-name" class="hero-name">SẴN SÀNG?</p>
+            <p id="display-class" class="hero-info" style="color: var(--blue);">NHẤN QUAY ĐỂ CHỌN TƯỚNG</p>
+        </div>
+        <button id="roll-btn" class="btn btn-roll" onclick="rollHero()">QUAY TƯỚNG</button>
+        <button id="start-btn" class="btn btn-start" onclick="startGame()">VÀO TRẬN</button>
+    </div>
+</div>
+
+<div id="hud">
+    <canvas id="minimap" width="150" height="150"></canvas>
+    <button id="exit-match" onclick="resetToLobby()">THOÁT TRẬN</button>
+    <div class="skill-zone">
+        <div class="s-btn"><b>K</b><small id="s1-label">Chiêu 1</small><div id="cd-k" class="cd-mask"></div></div>
+        <div class="s-btn"><b>L</b><small>Lướt</small><div id="cd-l" class="cd-mask"></div></div>
+        <div class="s-btn" style="border-color: var(--gold);"><b>U</b><small>ULTI</small><div id="cd-u" class="cd-mask"></div></div>
+        <div class="s-btn" style="width: 95px; height: 95px; background: rgba(255,255,255,0.1);"><b>J</b><small>ĐÁNH</small></div>
+    </div>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+// --- DỮ LIỆU 120 TƯỚNG ---
+const HEROES = [
+    "Arthur","Valhein","Natalya","Nakroth","Murad","Zuka","Florentino","Tulen","Liliana","Raz","Lauriel","Yorn",
+    "Violet","Hayate","Capheny","Elsu","Maloch","Omen","Richter","Lu Bu","Zanis","Butterfly","Quillen","Wukong",
+    "Veera","Krixi","Mganga","Kahlii","Alice","Payna","Gildur","Thane","Mina","Grakk","Arum","Baldum","Zip","Rouie",
+    "Aoi","Iggy","Lorion","Bright","Dextra","Sinestrea","Keera","Dirak","Eland'orr","Volkath","Enzo","Qi","Yena","Errol",
+    "Veres","Riktor","Amily","Roxie","Wisp","Moren","Kil'Groth","TeeMee","Astrid","Ryoma","Wonder Woman","Superman",
+    "The Flash","Batman","Joker","Lindis","Xeniel","Zill","Ignis","Airi","Skud","Preyta","Bijar","Stuart","Erin","Ming"
+]; 
+const CLASSES = ["ĐẤU SĨ", "XẠ THỦ", "PHÁP SƯ", "SÁT THỦ", "TRỢ THỦ", "ĐỠ ĐÒN"];
+
+let state = { active: false, entities: [], projectiles: [], player: null, cam: {x:0, y:0}, shake: 0 };
+let keys = {};
+let chosenHero = null;
+
+// --- HỆ THỐNG GACHA ---
+function rollHero() {
+    const nameEl = document.getElementById('display-name');
+    const classEl = document.getElementById('display-class');
+    const rollBtn = document.getElementById('roll-btn');
+    const startBtn = document.getElementById('start-btn');
+
+    rollBtn.style.pointerEvents = 'none';
+    nameEl.classList.add('rolling');
+    
+    let count = 0;
+    let timer = setInterval(() => {
+        nameEl.innerText = HEROES[Math.floor(Math.random() * HEROES.length)];
+        count++;
+        if(count > 30) {
+            clearInterval(timer);
+            nameEl.classList.remove('rolling');
+            const finalClass = CLASSES[Math.floor(Math.random() * CLASSES.length)];
+            classEl.innerText = finalClass;
+            
+            chosenHero = {
+                name: nameEl.innerText,
+                role: finalClass,
+                hp: finalClass === "ĐỠ ĐÒN" ? 6500 : (finalClass === "ĐẤU SĨ" ? 5000 : 3200),
+                speed: finalClass === "SÁT THỦ" ? 6 : 4.8,
+                color: finalClass === "ĐẤU SĨ" ? '#2ecc71' : (finalClass === "XẠ THỦ" ? '#00d4ff' : '#e74c3c')
+            };
+            
+            rollBtn.style.display = 'none';
+            startBtn.style.display = 'block';
+        }
+    }, 40);
+}
+
+// --- LOGIC GAME ---
+function resetToLobby() {
+    state.active = false;
+    state.entities = [];
+    state.projectiles = [];
+    document.getElementById('hud').style.display = 'none';
+    document.getElementById('lobby').style.display = 'flex';
+    document.getElementById('roll-btn').style.display = 'block';
+    document.getElementById('roll-btn').style.pointerEvents = 'auto';
+    document.getElementById('start-btn').style.display = 'none';
+    document.getElementById('display-name').innerText = "SẴN SÀNG?";
+    document.getElementById('display-class').innerText = "NHẤN QUAY ĐỂ CHỌN TƯỚNG";
+}
+
+function startGame() {
+    document.getElementById('lobby').style.display = 'none';
+    document.getElementById('hud').style.display = 'block';
+    
+    // Khởi tạo người chơi
+    state.player = new Hero(500, 500, '#00d4ff', chosenHero, true);
+    state.entities = [state.player];
+
+    // Tạo thêm AI
+    for(let i=0; i<4; i++) state.entities.push(new Hero(400, 600+i*100, '#00d4ff', {role:'XẠ THỦ', hp:3000, speed:5, color:'#00d4ff'}));
+    for(let i=0; i<5; i++) state.entities.push(new Hero(3500, 3500-i*100, '#ff4757', {role:'ĐẤU SĨ', hp:5000, speed:4, color:'#ff4757'}));
+
+    state.active = true;
+    requestAnimationFrame(loop);
+}
+
+class Hero {
+    constructor(x, y, team, data, isPlayer=false) {
+        this.x = x; this.y = y; this.team = team; this.isPlayer = isPlayer;
+        this.role = data.role; this.hp = this.maxHp = data.hp;
+        this.speed = data.speed; this.color = data.color;
+        this.dead = false; this.facing = {x:1, y:0};
+        this.cd = {k:0, l:0, u:0, atk:0};
+    }
+
+    cast(skill) {
+        if(this.dead || this.cd[skill] > 0) return;
+        
+        if(skill === 'atk') {
+            this.shoot(this.facing, 150, 18);
+            this.cd.atk = 0.4;
+        }
+        
+        // Chiêu thức riêng theo hệ
+        if(skill === 'k') {
+            if(this.role === "ĐẤU SĨ") this.shoot({x:0,y:0}, 100, 0, 150); // Hào quang
+            else if(this.role === "XẠ THỦ") [-0.2, 0, 0.2].forEach(a => this.shoot({x:this.facing.x+a, y:this.facing.y+a}, 200));
+            else this.shoot(this.facing, 500, 10, 40); // Pháp sư cầu ma
+            this.cd.k = 6;
+        }
+
+        if(skill === 'l') { // Lướt
+            this.x += this.facing.x * 250; this.y += this.facing.y * 250;
+            this.cd.l = 5;
+        }
+
+        if(skill === 'u') { // Ulti
+            if(this.role === "ĐẤU SĨ") {
+                this.x += this.facing.x * 200; this.y += this.facing.y * 200;
+                this.shoot({x:0,y:0}, 1200, 0, 300);
+                if(this.isPlayer) state.shake = 20; 
+            } else {
+                for(let i=0; i<12; i++) {
+                    let a = i * 0.52;
+                    this.shoot({x:Math.cos(a), y:Math.sin(a)}, 200);
+                }
+            }
+            this.cd.u = 15;
+        }
+    }
+
+    shoot(dir, dmg, spd=15, size=10) {
+        state.projectiles.push({
+            x: this.x, y: this.y, vx: dir.x*spd, vy: dir.y*spd, 
+            team: this.team, dmg, size, life: 50, color: this.color
+        });
+    }
+
+    update(dt) {
+        if(this.dead) return;
+        for(let s in this.cd) this.cd[s] = Math.max(0, this.cd[s] - dt);
+        if(!this.isPlayer) {
+            let tx = this.team === '#00d4ff' ? 4000 : 0;
+            let ty = this.team === '#00d4ff' ? 4000 : 0;
+            let d = Math.hypot(tx-this.x, ty-this.y);
+            this.x += ((tx-this.x)/d)*2; this.y += ((ty-this.y)/d)*2;
+            this.facing = {x:(tx-this.x)/d, y:(ty-this.y)/d};
+            if(Math.random() < 0.01) this.cast('atk');
+        }
+    }
+}
+
+function loop() {
+    if(!state.active) return;
+    const dt = 1/60;
+    const cv = document.getElementById('gameCanvas');
+    const ctx = cv.getContext('2d');
+    cv.width = window.innerWidth; cv.height = window.innerHeight;
+
+    // Movement PC
+    let mx=0, my=0;
+    if(keys['w']) my--; if(keys['s']) my++; if(keys['a']) mx--; if(keys['d']) mx++;
+    if(mx || my) {
+        state.player.x += (mx/Math.hypot(mx,my)) * state.player.speed;
+        state.player.y += (my/Math.hypot(mx,my)) * state.player.speed;
+        state.player.facing = {x: mx||state.player.facing.x, y: my||state.player.facing.y};
+    }
+
+    state.cam.x = state.player.x - cv.width/2;
+    state.cam.y = state.player.y - cv.height/2;
+    if(state.shake > 0) {
+        state.cam.x += (Math.random()-0.5)*state.shake;
+        state.cam.y += (Math.random()-0.5)*state.shake;
+        state.shake *= 0.9;
+    }
+
+    ctx.fillStyle = '#0a0d14'; ctx.fillRect(0,0,cv.width, cv.height);
+    ctx.save(); ctx.translate(-state.cam.x, -state.cam.y);
+    
+    // Map Grid
+    ctx.strokeStyle = '#1e272e';
+    for(let i=0; i<=4000; i+=250) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i,4000); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i); ctx.lineTo(4000,i); ctx.stroke(); }
+
+    state.entities.forEach(e => {
+        e.update(dt);
+        ctx.fillStyle = e.color;
+        ctx.beginPath(); ctx.arc(e.x, e.y, 35, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#000'; ctx.fillRect(e.x-40, e.y-60, 80, 8);
+        ctx.fillStyle = '#2ecc71'; ctx.fillRect(e.x-40, e.y-60, 80*(e.hp/e.maxHp), 8);
+    });
+
+    state.projectiles.forEach((p, i) => {
+        p.x += p.vx; p.y += p.vy; p.life--;
+        ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI*2); ctx.fill();
+        state.entities.forEach(e => {
+            if(!e.dead && e.team !== p.team && Math.hypot(p.x-e.x, p.y-e.y) < 45) {
+                e.hp -= p.dmg; p.life = 0;
+                if(e.hp <= 0) e.dead = true;
+            }
+        });
+        if(p.life <= 0) state.projectiles.splice(i, 1);
+    });
+    ctx.restore();
+
+    // Minimap & CD
+    let mctx = document.getElementById('minimap').getContext('2d');
+    mctx.fillStyle = '#000'; mctx.fillRect(0,0,150,150);
+    state.entities.forEach(e => { if(!e.dead) { mctx.fillStyle = e.team; mctx.beginPath(); mctx.arc(e.x/4000*150, e.y/4000*150, 4, 0, Math.PI*2); mctx.fill(); }});
+
+    ['k','l','u'].forEach(s => {
+        let max = (s==='u'?15:(s==='k'?6:5));
+        document.getElementById('cd-'+s).style.height = (state.player.cd[s]/max*100)+'%';
+    });
+
+    requestAnimationFrame(loop);
+}
+
+window.onkeydown = e => {
+    const k = e.key.toLowerCase(); keys[k] = true;
+    if(state.active) {
+        if(k === 'j' || k === ' ') state.player.cast('atk');
+        if(k === 'k') state.player.cast('k');
+        if(k === 'l') state.player.cast('l');
+        if(k === 'u') state.player.cast('u');
+    }
+};
+window.onkeyup = e => keys[e.key.toLowerCase()] = false;
+</script>
+</body>
+</html>
